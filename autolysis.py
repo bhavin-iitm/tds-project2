@@ -111,7 +111,18 @@ def main(filename):
     api_token = get_api_token()
 
     # Load the dataset
-    data = pd.read_csv(filename)
+    try:
+        data = pd.read_csv(filename, encoding='utf-8')  # Try 'utf-8' first
+    except UnicodeDecodeError:
+        print("UnicodeDecodeError with 'utf-8', trying 'cp1252'")
+        try:
+            data = pd.read_csv(filename, encoding='cp1252')  # Try 'cp1252' if 'utf-8' fails
+        except Exception as e:
+            print(f"Error loading CSV file with 'cp1252': {e}")
+            return
+    except Exception as e:
+        print(f"Error loading CSV file with 'utf-8': {e}")
+        return
 
     # Generate initial analysis
     analysis_results = analyze_data(data)
