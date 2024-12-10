@@ -18,99 +18,99 @@ import requests
 import json
 
 # Set your proxy endpoint
-API_ENDPOINT = "https://aiproxy.sanand.workers.dev/openai/v1/chat/completions"
-MODEL = "gpt-4o-mini"
+API_PROXY_ENDPOINT = "https://aiproxy.sanand.workers.dev/openai/v1/chat/completions"
+GPT_MODEL = "gpt-4o-mini"
 
 
-def get_api_token():
-    """Retrieve the API token from the environment variable."""
+def readAPITokenFromEnv():
+    """Read environment variable, if it does not exist then raise error"""
     token = os.getenv("AIPROXY_TOKEN")
     if not token:
-        raise EnvironmentError("AIPROXY_TOKEN environment variable not set.")
+        raise EnvironmentError("AIPROXY_TOKEN variable not found")
     return token
 
 
-def query_llm(messages, api_token):
-    """Query the LLM with the given messages using the provided API endpoint."""
+def inkokeLLMModel(messages, api_token):
+    """Invoke LLM Model with the passed messages."""
     headers = {"Authorization": f"Bearer {api_token}"}
     payload = {
-        "model": MODEL,
+        "model": GPT_MODEL,
         "messages": messages,
         "temperature": 0.7,
     }
-    response = requests.post(API_ENDPOINT, headers=headers, json=payload)
+    response = requests.post(API_PROXY_ENDPOINT, headers=headers, json=payload)
     if response.status_code == 200:
         return response.json()["choices"][0]["message"]["content"]
     else:
         response.raise_for_status()
 
 
-def save_chart(fig, chart_name):
-    """Save a chart as a PNG file."""
-    chart_path = f"{chart_name}.png"
-    fig.savefig(chart_path, format="png", bbox_inches="tight")
+def saveChartToDisk(fig, chartName):
+    """Persist the passed chart onto disk."""
+    pathOnDisk = f"{chartName}.png"
+    fig.savefig(pathOnDisk, format="png", bbox_inches="tight")
     plt.close(fig)
-    return chart_path
+    return pathOnDisk
 
 
-def analyze_data(data):
-    """Perform initial analysis and generate summaries."""
-    analysis_results = {}
+def performPrimitiveAnalysis(data):
+    """This method generates primitive summary and returns a dictionary containing the results"""
+    results = {}
 
-    # Summary statistics
-    summary_stats = data.describe(include="all").to_dict()
-    analysis_results["summary_statistics"] = summary_stats
+    # Describe the data
+    desriptiveStats = data.describe(include="all").to_dict()
+    results["summary_statistics"] = desriptiveStats
 
-    # Missing values
-    missing_values = data.isnull().sum().to_dict()
-    analysis_results["missing_values"] = missing_values
+    # Find Missing values
+    missingValues = data.isnull().sum().to_dict()
+    results["missing_values"] = missingValues
 
-    # Correlation matrix
-    numeric_data = data.select_dtypes(include=["number"])
-    if not numeric_data.empty:
-        correlation_matrix = numeric_data.corr()
-        analysis_results["correlations"] = correlation_matrix.to_dict()
+    # Correl
+    numericalDataColumns = data.select_dtypes(include=["number"])
+    if not numericalDataColumns.empty:
+        correlation_matrix = numericalDataColumns.corr()
+        results["correlations"] = correlation_matrix.to_dict()
 
         # Visualize correlation matrix
         fig, ax = plt.subplots(figsize=(8, 6))
         sns.heatmap(correlation_matrix, annot=True, fmt=".2f", cmap="coolwarm", ax=ax)
-        save_chart(fig, "correlation_matrix")
+        saveChartToDisk(fig, "correlation_matrix")
 
-    return analysis_results
+    return results
 
 
-def visualize_suggestions(data, suggestions):
-    """Generate visualizations based on LLM suggestions."""
-    numeric_data = data.select_dtypes(include=["number"])
+def visualizeSuggestions(data, suggestions):
+    """This method iterates through the LLM provided suggestions, plots the chart and saves them on disk"""
+    numericalDataColumns = data.select_dtypes(include=["number"])
     chart_paths = []
 
     for suggestion in suggestions.split("\n"):
         suggestion = suggestion.lower()
 
         if "histogram" in suggestion:
-            for col in numeric_data.columns:
+            for col in numericalDataColumns.columns:
                 fig, ax = plt.subplots(figsize=(6, 4))
-                numeric_data[col].hist(bins=20, ax=ax)
+                numericalDataColumns[col].hist(bins=20, ax=ax)
                 ax.set_title(f"Histogram of {col}")
-                chart_paths.append(save_chart(fig, f"histogram_{col}"))
+                chart_paths.append(saveChartToDisk(fig, f"histogram_{col}"))
 
-        elif "scatter" in suggestion and numeric_data.shape[1] >= 2:
-            cols = numeric_data.columns[:2]
+        elif "scatter" in suggestion and numericalDataColumns.shape[1] >= 2:
+            cols = numericalDataColumns.columns[:2]
             fig, ax = plt.subplots(figsize=(6, 4))
-            sns.scatterplot(x=numeric_data[cols[0]], y=numeric_data[cols[1]], ax=ax)
+            sns.scatterplot(x=numericalDataColumns[cols[0]], y=numericalDataColumns[cols[1]], ax=ax)
             ax.set_title(f"Scatterplot of {cols[0]} vs {cols[1]}")
-            chart_paths.append(save_chart(fig, "scatterplot"))
-
-        # Add more cases as needed for different suggestions.
+            chart_paths.append(saveChartToDisk(fig, "scatterplot"))
 
     return chart_paths
 
 
 def main(filename):
-    """Main function to handle the workflow."""
-    api_token = get_api_token()
+    """This is the orchestration function to weave the workflow"""
+    
+    # Step 1: Load the token from environment
+    api_token = readAPITokenFromEnv()
 
-    # Load the dataset
+    # Step 2: Read the dataset into pandas dataframe considering different encodings
     try:
         data = pd.read_csv(filename, encoding='utf-8')  # Try 'utf-8' first
     except UnicodeDecodeError:
@@ -124,10 +124,10 @@ def main(filename):
         print(f"Error loading CSV file with 'utf-8': {e}")
         return
 
-    # Generate initial analysis
-    analysis_results = analyze_data(data)
+    # Step 3: Perform primitive analysis to be sent to LLM
+    analysis_results = performPrimitiveAnalysis(data)
 
-    # Get summary for the LLM
+    # Step 4: Prepare the prompt user content for suggestions on visualizations
     summary = {
         "columns": list(data.columns),
         "dtypes": data.dtypes.astype(str).to_dict(),
@@ -135,33 +135,35 @@ def main(filename):
     }
     summary_text = json.dumps(summary)
 
-    # Ask LLM for additional suggestions
+    # Step 5: Invoke LLM with the prompt
     suggestions_prompt = [
         {"role": "system", "content": "You are an expert data analyst and visualization specialist."},
         {"role": "user", "content": f"Here is a summary of the dataset:\n{summary_text}\n" +
-                                     "Suggest additional analyses or visualizations."}
+                                     "Suggest additional analysis or visualizations."}
     ]
-    suggestions = query_llm(suggestions_prompt, api_token)
+    suggestions = inkokeLLMModel(suggestions_prompt, api_token)
 
-    # Visualize based on suggestions
-    additional_charts = visualize_suggestions(data, suggestions)
+    # Step 6: Visualize the suggestions
+    additional_charts = visualizeSuggestions(data, suggestions)
 
-    # Generate README.md
+    # Step 7: Invoke the LLM with additional details including visualizations and get the narrative
     narrative_prompt = [
         {"role": "system", "content": "You are an AI assistant creating a story based on data analysis."},
-        {"role": "user", "content": f"Here is the analysis summary, initial insights, and additional charts:\n" +
+        {"role": "user", "content": f"Here is the dataset name, analysis summary, initial insights, and additional charts:\n" +
+                                    f"Dataset Name: {filename}\n" +
                                      f"Analysis Summary: {analysis_results}\n" +
                                      f"Charts: {additional_charts}\n" +
-                                     "Generate a detailed README.md narrative."}
+                                     "Generate a detailed README.md narrative which should includes 1. Dataset you received 2. The analysis you carried out 3. Include the charts in the markdown file 4. The insights you discovered 5. The implications of your findings (i.e. what to do with the insights)"}
     ]
-    narrative = query_llm(narrative_prompt, api_token)
+    narrative = inkokeLLMModel(narrative_prompt, api_token)
 
+    #Step 8: Write the README.md file on the disk
     with open("README.md", "w") as readme_file:
         readme_file.write(narrative)
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: uv run autolysis.py dataset.csv")
+        print("Usage: uv run autolysis.py nameofthedataset.csv")
         sys.exit(1)
 
     main(sys.argv[1])
